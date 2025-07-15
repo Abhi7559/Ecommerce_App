@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-commerce Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    input, button, select { margin: 0.2em; }
+    .section { border: 1px solid #ccc; padding: 1em; margin-bottom: 1em; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h1>E-commerce Demo</h1>
+  <div class="section">
+    <h2>Register</h2>
+    <input id="reg-username" placeholder="Username">
+    <input id="reg-password" type="password" placeholder="Password">
+    <select id="reg-role">
+      <option value="customer">Customer</option>
+      <option value="admin">Admin</option>
+    </select>
+    <button onclick="register()">Register</button>
+    <span id="reg-msg"></span>
+  </div>
+  <div class="section">
+    <h2>Login</h2>
+    <input id="login-username" placeholder="Username">
+    <input id="login-password" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <span id="login-msg"></span>
+  </div>
+  <div class="section hidden" id="user-section">
+    <h2>Welcome, <span id="user-name"></span> (<span id="user-role"></span>)</h2>
+    <button onclick="logout()">Logout</button>
+  </div>
+  <div class="section" id="products-section">
+    <h2>Products</h2>
+    <input id="search" placeholder="Search by name">
+    <button onclick="fetchProducts()">Search</button>
+    <div id="products-list"></div>
+    <div id="admin-add-product" class="hidden">
+      <h3>Add Product (Admin)</h3>
+      <input id="prod-name" placeholder="Name">
+      <input id="prod-price" type="number" placeholder="Price">
+      <input id="prod-category" placeholder="Category">
+      <input id="prod-desc" placeholder="Description">
+      <input id="prod-stock" type="number" placeholder="Stock">
+      <button onclick="addProduct()">Add</button>
+      <span id="add-prod-msg"></span>
+    </div>
+  </div>
+  <div class="section hidden" id="cart-section">
+    <h2>Cart</h2>
+    <div id="cart-list"></div>
+    <button onclick="placeOrder()">Place Order</button>
+    <span id="order-msg"></span>
+  </div>
+  <div class="section hidden" id="orders-section">
+    <h2>My Orders</h2>
+    <div id="orders-list"></div>
+  </div>
+  <script>
+    const API = 'http://localhost:5000/api';
+    let token = '';
+    let role = '';
+    let username = '';
+    function show(id) { document.getElementById(id).classList.remove('hidden'); }
+    function hide(id) { document.getElementById(id).classList.add('hidden'); }
+    function setMsg(id, msg) { document.getElementById(id).textContent = msg; }
+    function register() {
+      setMsg('reg-msg', '');
+      fetch(`${API}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('reg-username').value,
+          password: document.getElementById('reg-password').value,
+          role: document.getElementById('reg-role').value
+        })
+      })
+      .then(r => r.json())
+      .then(d => setMsg('reg-msg', d.message || 'Registered!'));
+    }
+    function login() {
+      setMsg('login-msg', '');
+      fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('login-username').value,
+          password: document.getElementById('login-password').value
+        })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.token) {
+          token = d.token;
+          role = d.role;
+          username = document.getElementById('login-username').value;
+          show('user-section');
+          document.getElementById('user-name').textContent = username;
+          document.getElementById('user-role').textContent = role;
+          if (role === 'admin') show('admin-add-product');
+          if (role === 'customer') {
+            show('cart-section');
+            show('orders-section');
+            fetchCart();
+            fetchOrders();
+          }
+          setMsg('login-msg', '');
+        } else {
+          setMsg('login-msg', d.message || 'Login failed');
+        }
+      });
+    }
+    function logout() {
+      token = '';
+      role = '';
+      username = '';
+      hide('user-section');
+      hide('admin-add-product');
+      hide('cart-section');
+      hide('orders-section');
+      setMsg('login-msg', 'Logged out');
+    }
+    function fetchProducts() {
+      let url = `${API}/products?search=${document.getElementById('search').value}`;
+      fetch(url)
+        .then(r => r.json())
+        .then(d => {
+          let html = '<ul>';
+          (d.products || []).forEach(p => {
+            html += `<li>${p.name} ($${p.price}) [${p.category}] Stock: ${p.stock}`;
+            if (role === 'customer') html += ` <button onclick="addToCart('${p._id}')">Add to Cart</button>`;
+            if (role === 'admin') html += ` <button onclick="deleteProduct('${p._id}')">Delete</button>`;
+            html += '</li>';
+          });
+          html += '</ul>';
+          document.getElementById('products-list').innerHTML = html;
+        });
+    }
+    function addProduct() {
+      setMsg('add-prod-msg', '');
+      fetch(`${API}/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: document.getElementById('prod-name').value,
+          price: Number(document.getElementById('prod-price').value),
+          category: document.getElementById('prod-category').value,
+          description: document.getElementById('prod-desc').value,
+          stock: Number(document.getElementById('prod-stock').value)
+        })
+      })
+      .then(r => r.json())
+      .then(d => {
+        setMsg('add-prod-msg', d.message || 'Product added!');
+        fetchProducts();
+      });
+    }
+    function deleteProduct(id) {
+      fetch(`${API}/products/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(r => r.json())
+      .then(d => fetchProducts());
+    }
+    function addToCart(id) {
+      fetch(`${API}/cart/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ productId: id, quantity: 1 })
+      })
+      .then(r => r.json())
+      .then(d => fetchCart());
+    }
+    function fetchCart() {
+      fetch(`${API}/cart`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(r => r.json())
+      .then(cart => {
+        let html = '<ul>';
+        (cart || []).forEach(item => {
+          html += `<li>${item.product.name} x ${item.quantity} <button onclick="removeFromCart('${item.product._id}')">Remove</button></li>`;
+        });
+        html += '</ul>';
+        document.getElementById('cart-list').innerHTML = html;
+      });
+    }
+    function removeFromCart(id) {
+      fetch(`${API}/cart/remove`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ productId: id })
+      })
+      .then(r => r.json())
+      .then(d => fetchCart());
+    }
+    function placeOrder() {
+      setMsg('order-msg', '');
+      fetch(`${API}/orders`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(r => r.json())
+      .then(d => {
+        setMsg('order-msg', d.message || 'Order placed!');
+        fetchCart();
+        fetchOrders();
+      });
+    }
+    function fetchOrders() {
+      fetch(`${API}/orders`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(r => r.json())
+      .then(orders => {
+        let html = '<ul>';
+        (orders || []).forEach(order => {
+          html += `<li>Order #${order._id} - $${order.total} - ${new Date(order.date).toLocaleString()}<ul>`;
+          (order.items || []).forEach(item => {
+            html += `<li>${item.product.name} x ${item.quantity}</li>`;
+          });
+          html += '</ul></li>';
+        });
+        html += '</ul>';
+        document.getElementById('orders-list').innerHTML = html;
+      });
+    }
+    fetchProducts();
+  </script>
+</body>
+</html> 
